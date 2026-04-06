@@ -41,11 +41,15 @@ Deno.serve(async (req) => {
     let mediaType: 'image' | 'audio' | null = null
     let mediaMimeType = ''
 
-    let msgContent = messageData.message;
-    if (msgContent?.ephemeralMessage?.message) msgContent = msgContent.ephemeralMessage.message;
-    if (msgContent?.documentWithCaptionMessage?.message) msgContent = msgContent.documentWithCaptionMessage.message;
-    if (msgContent?.viewOnceMessage?.message) msgContent = msgContent.viewOnceMessage.message;
-    if (msgContent?.viewOnceMessageV2?.message) msgContent = msgContent.viewOnceMessageV2.message;
+    let msgContent = messageData.message
+    if (msgContent?.ephemeralMessage?.message)
+      msgContent = msgContent.ephemeralMessage.message
+    if (msgContent?.documentWithCaptionMessage?.message)
+      msgContent = msgContent.documentWithCaptionMessage.message
+    if (msgContent?.viewOnceMessage?.message)
+      msgContent = msgContent.viewOnceMessage.message
+    if (msgContent?.viewOnceMessageV2?.message)
+      msgContent = msgContent.viewOnceMessageV2.message
 
     if (msgContent?.conversation) messageText = msgContent.conversation
     else if (msgContent?.extendedTextMessage?.text)
@@ -63,7 +67,7 @@ Deno.serve(async (req) => {
       messageText = msgContent.documentMessage.fileName || ''
     }
 
-    if (!messageText && messageData.text) messageText = messageData.text;
+    if (!messageText && messageData.text) messageText = messageData.text
 
     if (!messageText && !mediaType)
       return new Response('Ignored non-text message', { status: 200 })
@@ -137,9 +141,18 @@ Deno.serve(async (req) => {
       dbMessageText = messageText ? `[Image]: ${messageText}` : `[Image]`
     else if (mediaType === 'audio') dbMessageText = `[Audio]`
 
-    const rawTs = messageData.messageTimestamp || messageData.timestamp || messageData.message?.messageTimestamp || Math.floor(Date.now() / 1000)
-    const messageTimestamp = Number(rawTs) > 20000000000 ? Number(rawTs) / 1000 : Number(rawTs)
+    // Extract the real message timestamp from the WhatsApp payload
+    const rawTs =
+      messageData.messageTimestamp ||
+      messageData.timestamp ||
+      messageData.message?.messageTimestamp ||
+      Math.floor(Date.now() / 1000)
+    const messageTimestamp =
+      Number(rawTs) > 20000000000 ? Number(rawTs) / 1000 : Number(rawTs)
     const createdAtIso = new Date(messageTimestamp * 1000).toISOString()
+
+    // Extract external message ID for deduplication
+    const externalMessageId = messageData.key?.id || messageData.id || null
 
     const upsertPayload: any = {
       user_id: userId,
@@ -158,31 +171,53 @@ Deno.serve(async (req) => {
       .single()
     if (convoError) throw convoError
 
-    const { data: savedMessage } = await supabase
-      .from('whatsapp_messages')
-      .insert({
-        user_id: userId,
-        conversation_id: conversation.id,
-        direction: 'in',
-        message_text: dbMessageText,
-        raw_payload: messageData,
-        created_at: createdAtIso,
-      })
-      .select('id, created_at')
-      .single()
+    // UPSERT message with external_message_id to prevent duplicates
+    const messageInsertPayload: any = {
+      user_id: userId,
+      conversation_id: conversation.id,
+      direction: 'in',
+      message_text: dbMessageText,
+      raw_payload: messageData,
+      created_at: createdAtIso,
+    }
+    if (externalMessageId) {
+      messageInsertPayload.external_message_id = externalMessageId
+    }
+
+    const { data: savedMessage } = externalMessageId
+      ? await supabase
+          .from('whatsapp_messages')
+          .upsert(messageInsertPayload, {
+            onConflict: 'conversation_id, external_message_id',
+          })
+          .select('id, created_at')
+          .single()
+      : await supabase
+          .from('whatsapp_messages')
+          .insert(messageInsertPayload)
+          .select('id, created_at')
+          .single()
 
     if (!agent) {
-      await supabase.from('whatsapp_conversations').update({ is_agent_paused: true }).eq('id', conversation.id)
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
       return new Response('No Active Agent, paused bot', { status: 200 })
     }
 
     if (!apiKey) {
-      await supabase.from('whatsapp_conversations').update({ is_agent_paused: true }).eq('id', conversation.id)
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
       return new Response('No API Key, paused bot', { status: 200 })
     }
 
     if ((conversation as any).is_agent_paused) {
-      return new Response('Bot is paused for this conversation', { status: 200 })
+      return new Response('Bot is paused for this conversation', {
+        status: 200,
+      })
     }
 
     const TOTAL_BUFFER = 10000
@@ -321,7 +356,10 @@ Deno.serve(async (req) => {
       }
     } catch (err: any) {
       console.error('[AI] Generation Error:', err.message)
-      await supabase.from('whatsapp_conversations').update({ is_agent_paused: true }).eq('id', conversation.id)
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
       return new Response('AI Error, paused bot', { status: 500 })
     }
 
@@ -341,14 +379,18 @@ Deno.serve(async (req) => {
       }),
     })
 
-    await supabase.from('whatsapp_messages').insert({
+    // Insert outgoing message with external_message_id for deduplication
+    const outgoingTimestamp = Math.floor(Date.now() / 1000)
+    const outgoingMessageId = `out_${conversation.id}_${outgoingTimestamp}`
+    await supabase.from('whatsapp_messages').upsert({
       user_id: userId,
       conversation_id: conversation.id,
       direction: 'out',
       message_text: aiResponseText,
-      raw_payload: { messageTimestamp: Math.floor(Date.now() / 1000) },
+      raw_payload: { messageTimestamp: outgoingTimestamp },
       created_at: new Date().toISOString(),
-    })
+      external_message_id: outgoingMessageId,
+    }, { onConflict: 'conversation_id, external_message_id' })
 
     return new Response('Message processed', { status: 200 })
   } catch (error: any) {
