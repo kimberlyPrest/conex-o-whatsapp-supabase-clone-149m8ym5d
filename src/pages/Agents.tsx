@@ -262,12 +262,19 @@ export default function Agents() {
 
   const handleSync = async () => {
     setSyncing(true)
-    toast.info('Iniciando sincronização de mensagens...')
-    const { error } = await syncWhatsappMessages()
+    toast.info('Iniciando sincronização (buscando histórico recente)...', {
+      duration: 4000,
+    })
+    const { data, error } = await syncWhatsappMessages()
     if (error) {
-      toast.error('Erro ao sincronizar mensagens: ' + error.message)
+      toast.error('Erro ao sincronizar: ' + error.message)
     } else {
-      toast.success('Mensagens sincronizadas com sucesso!')
+      const convs = data?.syncedConversations || 0
+      const msgs = data?.syncedMessages || 0
+      toast.success(
+        `Sincronização iniciada! ${convs} conversas e ${msgs} novas mensagens recentes encontradas. O restante do histórico está sendo baixado em segundo plano.`,
+        { duration: 6000 },
+      )
     }
     setSyncing(false)
   }

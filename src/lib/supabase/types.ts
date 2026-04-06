@@ -120,6 +120,7 @@ export type Database = {
           created_at: string
           id: string
           instance_name: string
+          is_agent_paused: boolean
           last_message_at: string
           updated_at: string
           user_id: string
@@ -129,6 +130,7 @@ export type Database = {
           created_at?: string
           id?: string
           instance_name: string
+          is_agent_paused?: boolean
           last_message_at?: string
           updated_at?: string
           user_id: string
@@ -138,6 +140,7 @@ export type Database = {
           created_at?: string
           id?: string
           instance_name?: string
+          is_agent_paused?: boolean
           last_message_at?: string
           updated_at?: string
           user_id?: string

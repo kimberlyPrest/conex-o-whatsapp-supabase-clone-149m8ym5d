@@ -22,6 +22,14 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) throw new Error('Missing Authorization header')
 
+    let body: any = {}
+    try {
+      body = await req.json()
+    } catch (e) {}
+
+    const isBackground = body.background === true
+    const chatOffset = body.chatOffset || 0
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       global: { headers: { Authorization: authHeader } },
     })
@@ -76,10 +84,18 @@ Deno.serve(async (req) => {
     const chatsList = Array.isArray(chats)
       ? chats
       : chats?.data || chats?.chats || []
-    const topChats = chatsList.slice(0, 30)
+
+    const BATCH_SIZE = 15
+    const topChats = isBackground
+      ? chatsList.slice(chatOffset, chatOffset + BATCH_SIZE)
+      : chatsList.slice(0, 30)
 
     let syncedConversations = 0
     let syncedMessages = 0
+
+    const threeMonthsAgo = new Date()
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
+    const thresholdTs = Math.floor(threeMonthsAgo.getTime() / 1000)
 
     for (const chat of topChats) {
       const remoteJid = chat.id || chat.remoteJid
@@ -116,47 +132,63 @@ Deno.serve(async (req) => {
       if (!conv) continue
       syncedConversations++
 
-      const { count } = await supabase
+      const { data: existingMsgs } = await supabase
         .from('whatsapp_messages')
-        .select('*', { count: 'exact', head: true })
+        .select('raw_payload')
         .eq('conversation_id', conv.id)
-      if (count && count > 0) continue
 
-      let msgs = []
-      try {
-        const msgsRes = await fetch(
-          `${EVOLUTION_BASE_URL}/chat/findMessages/${instance.instance_name}`,
-          {
-            method: 'POST',
-            headers: {
-              apikey: EVOLUTION_API_KEY,
-              'Content-Type': 'application/json',
+      const existingIds = new Set(
+        existingMsgs?.map((m: any) => m.raw_payload?.key?.id).filter(Boolean),
+      )
+
+      let page = 1
+      let hasMore = true
+
+      while (hasMore) {
+        let msgs = []
+        try {
+          const msgsRes = await fetch(
+            `${EVOLUTION_BASE_URL}/chat/findMessages/${instance.instance_name}`,
+            {
+              method: 'POST',
+              headers: {
+                apikey: EVOLUTION_API_KEY,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ remoteJid, page, limit: 100 }),
             },
-            body: JSON.stringify({
-              remoteJid,
-              where: { remoteJid },
-              limit: 20,
-            }),
-          },
-        )
+          )
 
-        if (msgsRes.ok) {
-          const msgsData = await msgsRes.json()
-          msgs = Array.isArray(msgsData)
-            ? msgsData
-            : msgsData?.messages || msgsData?.data || []
+          if (msgsRes.ok) {
+            const msgsData = await msgsRes.json()
+            msgs = Array.isArray(msgsData)
+              ? msgsData
+              : msgsData?.messages || msgsData?.data || []
+          }
+        } catch (e) {
+          console.error('Error fetching messages for chat:', remoteJid, e)
         }
-      } catch (e) {
-        console.error('Error fetching messages for chat:', remoteJid, e)
-      }
 
-      if (msgs.length > 0) {
+        if (msgs.length === 0) {
+          hasMore = false
+          break
+        }
+
         msgs.sort(
           (a: any, b: any) =>
             (a.messageTimestamp || 0) - (b.messageTimestamp || 0),
         )
 
-        for (const m of msgs.slice(-20)) {
+        let oldestMsgTs = Infinity
+
+        for (const m of msgs) {
+          const msgTimestamp = m.messageTimestamp || m.timestamp
+          if (msgTimestamp && msgTimestamp < oldestMsgTs)
+            oldestMsgTs = msgTimestamp
+
+          const messageId = m.key?.id
+          if (messageId && existingIds.has(messageId)) continue
+
           const fromMe = m.key?.fromMe || false
           const msgContent = m.message
           let text = ''
@@ -173,25 +205,59 @@ Deno.serve(async (req) => {
 
           if (!text) continue
 
-          const msgTimestamp = m.messageTimestamp || m.timestamp
+          const { error: insertError } = await supabase
+            .from('whatsapp_messages')
+            .insert({
+              user_id: user.id,
+              conversation_id: conv.id,
+              direction: fromMe ? 'out' : 'in',
+              message_text: text,
+              raw_payload: m,
+              created_at: msgTimestamp
+                ? new Date(msgTimestamp * 1000).toISOString()
+                : new Date().toISOString(),
+            })
 
-          await supabase.from('whatsapp_messages').insert({
-            user_id: user.id,
-            conversation_id: conv.id,
-            direction: fromMe ? 'out' : 'in',
-            message_text: text,
-            raw_payload: m,
-            created_at: msgTimestamp
-              ? new Date(msgTimestamp * 1000).toISOString()
-              : new Date().toISOString(),
-          })
-          syncedMessages++
+          if (!insertError) {
+            syncedMessages++
+            if (messageId) existingIds.add(messageId)
+          }
+        }
+
+        if (msgs.length < 100) {
+          hasMore = false
+        } else {
+          page++
+        }
+
+        if (!isBackground && oldestMsgTs < thresholdTs) {
+          hasMore = false
         }
       }
     }
 
+    if (!isBackground && chatsList.length > 30) {
+      supabase.functions
+        .invoke('whatsapp-sync', {
+          body: { background: true, chatOffset: 30 },
+        })
+        .catch((e) => console.error('Error invoking background sync:', e))
+    } else if (isBackground && chatOffset + BATCH_SIZE < chatsList.length) {
+      supabase.functions
+        .invoke('whatsapp-sync', {
+          body: { background: true, chatOffset: chatOffset + BATCH_SIZE },
+        })
+        .catch((e) => console.error('Error invoking next background sync:', e))
+    }
+
     return new Response(
-      JSON.stringify({ success: true, syncedConversations, syncedMessages }),
+      JSON.stringify({
+        success: true,
+        syncedConversations,
+        syncedMessages,
+        isBackground,
+        chatOffset,
+      }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       },

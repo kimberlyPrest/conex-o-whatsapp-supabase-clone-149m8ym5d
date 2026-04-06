@@ -65,6 +65,7 @@ export const syncWhatsappMessages = async (): Promise<{
 }> => {
   const { data, error } = await supabase.functions.invoke('whatsapp-sync', {
     method: 'POST',
+    body: { background: false },
   })
   return { data, error }
 }

@@ -157,8 +157,27 @@ Deno.serve(async (req) => {
       .select('id, created_at')
       .single()
 
-    if (conversation.is_agent_paused || !agent || !apiKey)
-      return new Response('Paused/No Active Agent/Key', { status: 200 })
+    if (!agent) {
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
+      return new Response('No Active Agent, paused bot', { status: 200 })
+    }
+
+    if (!apiKey) {
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
+      return new Response('No API Key, paused bot', { status: 200 })
+    }
+
+    if ((conversation as any).is_agent_paused) {
+      return new Response('Bot is paused for this conversation', {
+        status: 200,
+      })
+    }
 
     const TOTAL_BUFFER = 10000
     const TYPING_BUFFER = 5000
@@ -296,7 +315,11 @@ Deno.serve(async (req) => {
       }
     } catch (err: any) {
       console.error('[AI] Generation Error:', err.message)
-      return new Response('AI Error', { status: 500 })
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
+      return new Response('AI Error, paused bot', { status: 500 })
     }
 
     if (!aiResponseText)
