@@ -35,7 +35,9 @@ import {
   X,
   Sparkles,
   Bot,
+  RefreshCw,
 } from 'lucide-react'
+import { syncWhatsappMessages } from '@/services/whatsapp'
 import {
   Dialog,
   DialogContent,
@@ -84,6 +86,7 @@ export default function Agents() {
   const [currentStep, setCurrentStep] = useState(1)
   const [uploading, setUploading] = useState(false)
   const [isFileChanged, setIsFileChanged] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   const [formData, setFormData] = useState<Partial<AiAgent> & { id?: string }>(
     INITIAL_FORM_STATE,
@@ -257,6 +260,18 @@ export default function Agents() {
     toast.info('Template aplicado!')
   }
 
+  const handleSync = async () => {
+    setSyncing(true)
+    toast.info('Iniciando sincronização de mensagens...')
+    const { error } = await syncWhatsappMessages()
+    if (error) {
+      toast.error('Erro ao sincronizar mensagens: ' + error.message)
+    } else {
+      toast.success('Mensagens sincronizadas com sucesso!')
+    }
+    setSyncing(false)
+  }
+
   return (
     <div className="space-y-6 sm:space-y-8 animate-fade-in">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -269,15 +284,29 @@ export default function Agents() {
           </p>
         </div>
 
-        <Button
-          onClick={handleOpenCreate}
-          className="w-full sm:w-auto rounded-full h-12 px-6 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all sm:hover:scale-105"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          Novo Agente
-        </Button>
+        <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2 sm:gap-3">
+          <Button
+            variant="outline"
+            onClick={handleSync}
+            disabled={syncing}
+            className="w-full sm:w-auto rounded-full h-12 px-6 transition-all"
+          >
+            {syncing ? (
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-5 h-5 mr-2" />
+            )}
+            {syncing ? 'Sincronizando...' : 'Sincronizar Mensagens'}
+          </Button>
+          <Button
+            onClick={handleOpenCreate}
+            className="w-full sm:w-auto rounded-full h-12 px-6 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all sm:hover:scale-105"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Novo Agente
+          </Button>
+        </div>
       </div>
-
       {loading ? (
         <div className="flex justify-center p-12">
           <Loader2 className="w-10 h-10 animate-spin text-primary" />

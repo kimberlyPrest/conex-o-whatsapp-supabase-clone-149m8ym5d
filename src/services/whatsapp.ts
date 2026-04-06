@@ -58,3 +58,13 @@ export const disconnectWhatsapp = async (): Promise<{
   )
   return { data, error }
 }
+
+export const syncWhatsappMessages = async (): Promise<{
+  data: any
+  error: any
+}> => {
+  const { data, error } = await supabase.functions.invoke('whatsapp-sync', {
+    method: 'POST',
+  })
+  return { data, error }
+}
