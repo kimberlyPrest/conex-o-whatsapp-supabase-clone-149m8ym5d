@@ -8,7 +8,7 @@
     "disconnect-whatsapp": 3,
     "process-knowledge-base": 3,
     "provider-save-key": 3,
-    "send-whatsapp-message": 3,
+    "send-whatsapp-message": 4,
     "whatsapp-status": 3,
     "whatsapp-webhook": 5,
     "whatsapp-sync": 5
