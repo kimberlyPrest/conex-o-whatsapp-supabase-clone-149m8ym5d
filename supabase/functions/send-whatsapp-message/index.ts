@@ -86,7 +86,8 @@ Deno.serve(async (req) => {
         conversation_id: conversation.id,
         direction: 'out',
         message_text: text,
-        raw_payload: {},
+        raw_payload: { messageTimestamp: Math.floor(Date.now() / 1000) },
+        created_at: new Date().toISOString(),
       })
       .select()
       .single()

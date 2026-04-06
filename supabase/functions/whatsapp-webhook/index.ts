@@ -141,11 +141,15 @@ Deno.serve(async (req) => {
       dbMessageText = messageText ? `[Image]: ${messageText}` : `[Image]`
     else if (mediaType === 'audio') dbMessageText = `[Audio]`
 
+    const messageTimestamp =
+      messageData.messageTimestamp || Math.floor(Date.now() / 1000)
+    const createdAtIso = new Date(messageTimestamp * 1000).toISOString()
+
     const upsertPayload: any = {
       user_id: userId,
       instance_name: instance,
       contact_id: contactId,
-      last_message_at: new Date().toISOString(),
+      last_message_at: createdAtIso,
       crm_status: 'em_atendimento',
       status_updated_at: new Date().toISOString(),
     }
@@ -166,6 +170,7 @@ Deno.serve(async (req) => {
         direction: 'in',
         message_text: dbMessageText,
         raw_payload: messageData,
+        created_at: createdAtIso,
       })
       .select('id, created_at')
       .single()
@@ -356,7 +361,8 @@ Deno.serve(async (req) => {
       conversation_id: conversation.id,
       direction: 'out',
       message_text: aiResponseText,
-      raw_payload: {},
+      raw_payload: { messageTimestamp: Math.floor(Date.now() / 1000) },
+      created_at: new Date().toISOString(),
     })
 
     return new Response('Message processed', { status: 200 })
