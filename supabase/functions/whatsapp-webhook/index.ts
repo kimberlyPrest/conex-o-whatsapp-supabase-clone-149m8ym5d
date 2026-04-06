@@ -41,7 +41,16 @@ Deno.serve(async (req) => {
     let mediaType: 'image' | 'audio' | null = null
     let mediaMimeType = ''
 
-    const msgContent = messageData.message
+    let msgContent = messageData.message
+    if (msgContent?.ephemeralMessage?.message)
+      msgContent = msgContent.ephemeralMessage.message
+    if (msgContent?.documentWithCaptionMessage?.message)
+      msgContent = msgContent.documentWithCaptionMessage.message
+    if (msgContent?.viewOnceMessage?.message)
+      msgContent = msgContent.viewOnceMessage.message
+    if (msgContent?.viewOnceMessageV2?.message)
+      msgContent = msgContent.viewOnceMessageV2.message
+
     if (msgContent?.conversation) messageText = msgContent.conversation
     else if (msgContent?.extendedTextMessage?.text)
       messageText = msgContent.extendedTextMessage.text
@@ -54,7 +63,11 @@ Deno.serve(async (req) => {
     else if (msgContent?.audioMessage) {
       mediaType = 'audio'
       mediaMimeType = msgContent.audioMessage.mimetype || 'audio/ogg'
+    } else if (msgContent?.documentMessage) {
+      messageText = msgContent.documentMessage.fileName || ''
     }
+
+    if (!messageText && messageData.text) messageText = messageData.text
 
     if (!messageText && !mediaType)
       return new Response('Ignored non-text message', { status: 200 })

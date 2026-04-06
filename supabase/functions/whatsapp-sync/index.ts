@@ -83,7 +83,11 @@ Deno.serve(async (req) => {
 
     const chatsList = Array.isArray(chats)
       ? chats
-      : chats?.data || chats?.chats || []
+      : chats?.records ||
+        chats?.data?.records ||
+        chats?.data ||
+        chats?.chats ||
+        []
 
     const BATCH_SIZE = 15
     const topChats = isBackground
@@ -138,7 +142,9 @@ Deno.serve(async (req) => {
         .eq('conversation_id', conv.id)
 
       const existingIds = new Set(
-        existingMsgs?.map((m: any) => m.raw_payload?.key?.id).filter(Boolean),
+        existingMsgs
+          ?.map((m: any) => m.raw_payload?.key?.id || m.raw_payload?.id)
+          .filter(Boolean),
       )
 
       let page = 1
@@ -155,16 +161,29 @@ Deno.serve(async (req) => {
                 apikey: EVOLUTION_API_KEY,
                 'Content-Type': 'application/json',
               },
-              body: JSON.stringify({ remoteJid, page, limit: 100 }),
+              body: JSON.stringify({
+                where: { remoteJid },
+                remoteJid,
+                page,
+                limit: 100,
+              }),
             },
           )
 
           if (msgsRes.ok) {
             const msgsData = await msgsRes.json()
-            const extracted = Array.isArray(msgsData)
-              ? msgsData
-              : msgsData?.messages || msgsData?.data
+            let extracted = msgsData
+            if (!Array.isArray(extracted)) extracted = extracted?.messages
+            if (!Array.isArray(extracted)) extracted = extracted?.records
+            if (!Array.isArray(extracted))
+              extracted = msgsData?.data?.records || msgsData?.data
             msgs = Array.isArray(extracted) ? extracted : []
+          } else {
+            console.error(
+              'Failed to fetch messages. Status:',
+              msgsRes.status,
+              await msgsRes.text(),
+            )
           }
         } catch (e) {
           console.error('Error fetching messages for chat:', remoteJid, e)
@@ -177,7 +196,8 @@ Deno.serve(async (req) => {
 
         msgs.sort(
           (a: any, b: any) =>
-            (a.messageTimestamp || 0) - (b.messageTimestamp || 0),
+            (a.messageTimestamp || a.timestamp || 0) -
+            (b.messageTimestamp || b.timestamp || 0),
         )
 
         let oldestMsgTs = Infinity
@@ -187,22 +207,47 @@ Deno.serve(async (req) => {
           if (msgTimestamp && msgTimestamp < oldestMsgTs)
             oldestMsgTs = msgTimestamp
 
-          const messageId = m.key?.id
+          const messageId = m.key?.id || m.id
           if (messageId && existingIds.has(messageId)) continue
 
-          const fromMe = m.key?.fromMe || false
-          const msgContent = m.message
-          let text = ''
-          if (msgContent?.conversation) text = msgContent.conversation
-          else if (msgContent?.extendedTextMessage?.text)
-            text = msgContent.extendedTextMessage.text
-          else if (msgContent?.imageMessage)
-            text = '[Image] ' + (msgContent.imageMessage.caption || '')
-          else if (msgContent?.audioMessage) text = '[Audio]'
-          else if (msgContent?.videoMessage)
-            text = '[Video] ' + (msgContent.videoMessage.caption || '')
-          else if (msgContent?.documentMessage)
-            text = '[Document] ' + (msgContent.documentMessage.fileName || '')
+          const fromMe = m.key?.fromMe ?? m.fromMe ?? false
+
+          let msgContent = m.message
+          if (msgContent?.ephemeralMessage?.message)
+            msgContent = msgContent.ephemeralMessage.message
+          if (msgContent?.documentWithCaptionMessage?.message)
+            msgContent = msgContent.documentWithCaptionMessage.message
+          if (msgContent?.viewOnceMessage?.message)
+            msgContent = msgContent.viewOnceMessage.message
+          if (msgContent?.viewOnceMessageV2?.message)
+            msgContent = msgContent.viewOnceMessageV2.message
+
+          let text = m.text || ''
+          if (!text && msgContent) {
+            if (msgContent.conversation) text = msgContent.conversation
+            else if (msgContent.extendedTextMessage?.text)
+              text = msgContent.extendedTextMessage.text
+            else if (msgContent.imageMessage)
+              text = msgContent.imageMessage.caption
+                ? `[Image] ${msgContent.imageMessage.caption}`
+                : '[Image]'
+            else if (msgContent.videoMessage)
+              text = msgContent.videoMessage.caption
+                ? `[Video] ${msgContent.videoMessage.caption}`
+                : '[Video]'
+            else if (msgContent.audioMessage) text = '[Audio]'
+            else if (msgContent.documentMessage)
+              text = msgContent.documentMessage.fileName
+                ? `[Document] ${msgContent.documentMessage.fileName}`
+                : '[Document]'
+          }
+
+          if (!text && m.messageType === 'imageMessage') text = '[Image]'
+          if (!text && m.messageType === 'audioMessage') text = '[Audio]'
+          if (!text && m.messageType === 'videoMessage') text = '[Video]'
+          if (!text && m.messageType === 'documentMessage') text = '[Document]'
+          if (!text && m.messageType === 'extendedTextMessage' && m.text)
+            text = m.text
 
           if (!text) continue
 
