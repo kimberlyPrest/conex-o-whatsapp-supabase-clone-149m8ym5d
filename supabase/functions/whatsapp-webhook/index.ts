@@ -41,11 +41,15 @@ Deno.serve(async (req) => {
     let mediaType: 'image' | 'audio' | null = null
     let mediaMimeType = ''
 
-    let msgContent = messageData.message;
-    if (msgContent?.ephemeralMessage?.message) msgContent = msgContent.ephemeralMessage.message;
-    if (msgContent?.documentWithCaptionMessage?.message) msgContent = msgContent.documentWithCaptionMessage.message;
-    if (msgContent?.viewOnceMessage?.message) msgContent = msgContent.viewOnceMessage.message;
-    if (msgContent?.viewOnceMessageV2?.message) msgContent = msgContent.viewOnceMessageV2.message;
+    let msgContent = messageData.message
+    if (msgContent?.ephemeralMessage?.message)
+      msgContent = msgContent.ephemeralMessage.message
+    if (msgContent?.documentWithCaptionMessage?.message)
+      msgContent = msgContent.documentWithCaptionMessage.message
+    if (msgContent?.viewOnceMessage?.message)
+      msgContent = msgContent.viewOnceMessage.message
+    if (msgContent?.viewOnceMessageV2?.message)
+      msgContent = msgContent.viewOnceMessageV2.message
 
     if (msgContent?.conversation) messageText = msgContent.conversation
     else if (msgContent?.extendedTextMessage?.text)
@@ -63,7 +67,7 @@ Deno.serve(async (req) => {
       messageText = msgContent.documentMessage.fileName || ''
     }
 
-    if (!messageText && messageData.text) messageText = messageData.text;
+    if (!messageText && messageData.text) messageText = messageData.text
 
     if (!messageText && !mediaType)
       return new Response('Ignored non-text message', { status: 200 })
@@ -137,8 +141,13 @@ Deno.serve(async (req) => {
       dbMessageText = messageText ? `[Image]: ${messageText}` : `[Image]`
     else if (mediaType === 'audio') dbMessageText = `[Audio]`
 
-    const rawTs = messageData.messageTimestamp || messageData.timestamp || messageData.message?.messageTimestamp || Math.floor(Date.now() / 1000)
-    const messageTimestamp = Number(rawTs) > 20000000000 ? Number(rawTs) / 1000 : Number(rawTs)
+    const rawTs =
+      messageData.messageTimestamp ||
+      messageData.timestamp ||
+      messageData.message?.messageTimestamp ||
+      Math.floor(Date.now() / 1000)
+    const messageTimestamp =
+      Number(rawTs) > 20000000000 ? Number(rawTs) / 1000 : Number(rawTs)
     const createdAtIso = new Date(messageTimestamp * 1000).toISOString()
 
     const upsertPayload: any = {
@@ -158,39 +167,50 @@ Deno.serve(async (req) => {
       .single()
     if (convoError) throw convoError
 
-    const externalMessageId = messageData.key?.id || messageData.id || null;
+    const externalMessageId = messageData.key?.id || messageData.id || null
 
     const { data: savedMessage, error: msgError } = await supabase
       .from('whatsapp_messages')
-      .upsert({
-        user_id: userId,
-        conversation_id: conversation.id,
-        direction: 'in',
-        message_text: dbMessageText,
-        raw_payload: messageData,
-        created_at: createdAtIso,
-        external_message_id: externalMessageId,
-      }, { onConflict: 'conversation_id,external_message_id' })
+      .upsert(
+        {
+          user_id: userId,
+          conversation_id: conversation.id,
+          direction: 'in',
+          message_text: dbMessageText,
+          raw_payload: messageData,
+          created_at: createdAtIso,
+          external_message_id: externalMessageId,
+        },
+        { onConflict: 'conversation_id,external_message_id' },
+      )
       .select('id, created_at')
       .single()
 
     if (msgError) {
-      console.error('Error upserting message:', msgError);
-      throw msgError;
+      console.error('Error upserting message:', msgError)
+      throw msgError
     }
 
     if (!agent) {
-      await supabase.from('whatsapp_conversations').update({ is_agent_paused: true }).eq('id', conversation.id)
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
       return new Response('No Active Agent, paused bot', { status: 200 })
     }
 
     if (!apiKey) {
-      await supabase.from('whatsapp_conversations').update({ is_agent_paused: true }).eq('id', conversation.id)
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
       return new Response('No API Key, paused bot', { status: 200 })
     }
 
     if ((conversation as any).is_agent_paused) {
-      return new Response('Bot is paused for this conversation', { status: 200 })
+      return new Response('Bot is paused for this conversation', {
+        status: 200,
+      })
     }
 
     const TOTAL_BUFFER = 10000
@@ -329,7 +349,10 @@ Deno.serve(async (req) => {
       }
     } catch (err: any) {
       console.error('[AI] Generation Error:', err.message)
-      await supabase.from('whatsapp_conversations').update({ is_agent_paused: true }).eq('id', conversation.id)
+      await supabase
+        .from('whatsapp_conversations')
+        .update({ is_agent_paused: true })
+        .eq('id', conversation.id)
       return new Response('AI Error, paused bot', { status: 500 })
     }
 
