@@ -10,7 +10,7 @@
     "provider-save-key": 3,
     "send-whatsapp-message": 4,
     "whatsapp-status": 3,
-    "whatsapp-webhook": 5,
+    "whatsapp-webhook": 6,
     "whatsapp-sync": 5
   }
 }
