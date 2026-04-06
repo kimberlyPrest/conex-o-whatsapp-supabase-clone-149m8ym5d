@@ -89,10 +89,11 @@ Deno.serve(async (req) => {
         chats?.chats ||
         []
 
-    const BATCH_SIZE = 15
+    const BATCH_SIZE = 5
+    const INITIAL_BATCH_SIZE = 10
     const topChats = isBackground
       ? chatsList.slice(chatOffset, chatOffset + BATCH_SIZE)
-      : chatsList.slice(0, 30)
+      : chatsList.slice(0, INITIAL_BATCH_SIZE)
 
     let syncedConversations = 0
     let syncedMessages = 0
@@ -201,6 +202,7 @@ Deno.serve(async (req) => {
         )
 
         let oldestMsgTs = Infinity
+        const messagesToInsert = []
 
         for (const m of msgs) {
           const msgTimestamp = m.messageTimestamp || m.timestamp
@@ -251,22 +253,30 @@ Deno.serve(async (req) => {
 
           if (!text) continue
 
+          messagesToInsert.push({
+            user_id: user.id,
+            conversation_id: conv.id,
+            direction: fromMe ? 'out' : 'in',
+            message_text: text,
+            raw_payload: m,
+            created_at: msgTimestamp
+              ? new Date(msgTimestamp * 1000).toISOString()
+              : new Date().toISOString(),
+          })
+        }
+
+        if (messagesToInsert.length > 0) {
           const { error: insertError } = await supabase
             .from('whatsapp_messages')
-            .insert({
-              user_id: user.id,
-              conversation_id: conv.id,
-              direction: fromMe ? 'out' : 'in',
-              message_text: text,
-              raw_payload: m,
-              created_at: msgTimestamp
-                ? new Date(msgTimestamp * 1000).toISOString()
-                : new Date().toISOString(),
-            })
-
+            .insert(messagesToInsert)
           if (!insertError) {
-            syncedMessages++
-            if (messageId) existingIds.add(messageId)
+            syncedMessages += messagesToInsert.length
+            for (const m of messagesToInsert) {
+              const msgId = m.raw_payload?.key?.id || m.raw_payload?.id
+              if (msgId) existingIds.add(msgId)
+            }
+          } else {
+            console.error('Error inserting messages:', insertError)
           }
         }
 
@@ -282,10 +292,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!isBackground && chatsList.length > 30) {
+    if (!isBackground && chatsList.length > INITIAL_BATCH_SIZE) {
       supabase.functions
         .invoke('whatsapp-sync', {
-          body: { background: true, chatOffset: 30 },
+          body: { background: true, chatOffset: INITIAL_BATCH_SIZE },
         })
         .catch((e) => console.error('Error invoking background sync:', e))
     } else if (isBackground && chatOffset + BATCH_SIZE < chatsList.length) {
