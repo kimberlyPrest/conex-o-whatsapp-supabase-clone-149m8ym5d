@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
       let hasMore = true
 
       while (hasMore) {
-        let msgs = []
+        let msgs: any[] = []
         try {
           const msgsRes = await fetch(
             `${EVOLUTION_BASE_URL}/chat/findMessages/${instance.instance_name}`,
@@ -161,15 +161,16 @@ Deno.serve(async (req) => {
 
           if (msgsRes.ok) {
             const msgsData = await msgsRes.json()
-            msgs = Array.isArray(msgsData)
+            const extracted = Array.isArray(msgsData)
               ? msgsData
-              : msgsData?.messages || msgsData?.data || []
+              : msgsData?.messages || msgsData?.data
+            msgs = Array.isArray(extracted) ? extracted : []
           }
         } catch (e) {
           console.error('Error fetching messages for chat:', remoteJid, e)
         }
 
-        if (msgs.length === 0) {
+        if (!Array.isArray(msgs) || msgs.length === 0) {
           hasMore = false
           break
         }

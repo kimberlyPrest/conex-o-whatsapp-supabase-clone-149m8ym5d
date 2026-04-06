@@ -11,6 +11,6 @@
     "send-whatsapp-message": 3,
     "whatsapp-status": 3,
     "whatsapp-webhook": 4,
-    "whatsapp-sync": 2
+    "whatsapp-sync": 3
   }
 }

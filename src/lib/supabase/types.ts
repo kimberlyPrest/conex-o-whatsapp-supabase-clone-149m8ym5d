@@ -369,6 +369,7 @@ export const Constants = {
 //   last_message_at: timestamp with time zone (not null, default: timezone('utc'::text, now()))
 //   created_at: timestamp with time zone (not null, default: timezone('utc'::text, now()))
 //   updated_at: timestamp with time zone (not null, default: timezone('utc'::text, now()))
+//   is_agent_paused: boolean (not null, default: false)
 // Table: whatsapp_messages
 //   id: uuid (not null, default: gen_random_uuid())
 //   user_id: uuid (not null)
