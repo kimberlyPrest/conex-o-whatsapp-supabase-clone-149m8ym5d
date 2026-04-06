@@ -141,8 +141,13 @@ Deno.serve(async (req) => {
       dbMessageText = messageText ? `[Image]: ${messageText}` : `[Image]`
     else if (mediaType === 'audio') dbMessageText = `[Audio]`
 
+    const rawTs =
+      messageData.messageTimestamp ||
+      messageData.timestamp ||
+      messageData.message?.messageTimestamp ||
+      Math.floor(Date.now() / 1000)
     const messageTimestamp =
-      messageData.messageTimestamp || Math.floor(Date.now() / 1000)
+      Number(rawTs) > 20000000000 ? Number(rawTs) / 1000 : Number(rawTs)
     const createdAtIso = new Date(messageTimestamp * 1000).toISOString()
 
     const upsertPayload: any = {

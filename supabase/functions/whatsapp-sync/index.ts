@@ -195,17 +195,31 @@ Deno.serve(async (req) => {
           break
         }
 
-        msgs.sort(
-          (a: any, b: any) =>
-            (a.messageTimestamp || a.timestamp || 0) -
-            (b.messageTimestamp || b.timestamp || 0),
-        )
+        msgs.sort((a: any, b: any) => {
+          const tsA =
+            a.messageTimestamp ||
+            a.timestamp ||
+            a.message?.messageTimestamp ||
+            0
+          const tsB =
+            b.messageTimestamp ||
+            b.timestamp ||
+            b.message?.messageTimestamp ||
+            0
+          return Number(tsA) - Number(tsB)
+        })
 
         let oldestMsgTs = Infinity
         const messagesToInsert = []
 
         for (const m of msgs) {
-          const msgTimestamp = m.messageTimestamp || m.timestamp
+          const rawTs =
+            m.messageTimestamp || m.timestamp || m.message?.messageTimestamp
+          const msgTimestamp = rawTs
+            ? Number(rawTs) > 20000000000
+              ? Number(rawTs) / 1000
+              : Number(rawTs)
+            : undefined
           if (msgTimestamp && msgTimestamp < oldestMsgTs)
             oldestMsgTs = msgTimestamp
 
